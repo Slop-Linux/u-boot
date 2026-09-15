@@ -673,6 +673,15 @@ struct nvme_ops {
 	 */
 	int (*setup_queue)(struct nvme_queue *nvmeq);
 	/**
+	 * register_queue - Controller-specific NVM Express queue registration.
+	 *
+	 * This is called after the Create Completion Queue and Create Submission
+	 * Queue commands have completed.
+	 *
+	 * @nvmeq: NVM Express queue
+	 */
+	void (*register_queue)(struct nvme_queue *nvmeq);
+	/**
 	 * submit_cmd - Controller-specific NVM Express command submission.
 	 *
 	 * If this function pointer is set to NULL, normal command

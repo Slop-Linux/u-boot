@@ -555,6 +555,7 @@ int nvme_set_features(struct nvme_dev *dev, unsigned fid, unsigned dword11,
 static int nvme_create_queue(struct nvme_queue *nvmeq, int qid)
 {
 	struct nvme_dev *dev = nvmeq->dev;
+	struct nvme_ops *ops;
 	int result;
 
 	nvmeq->cq_vector = qid - 1;
@@ -565,6 +566,10 @@ static int nvme_create_queue(struct nvme_queue *nvmeq, int qid)
 	result = nvme_alloc_sq(dev, qid, nvmeq);
 	if (result < 0)
 		goto release_cq;
+
+	ops = (struct nvme_ops *)dev->udev->driver->ops;
+	if (ops && ops->register_queue)
+		ops->register_queue(nvmeq);
 
 	nvme_init_queue(nvmeq, qid);
 

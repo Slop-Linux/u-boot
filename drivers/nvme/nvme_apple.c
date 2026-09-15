@@ -20,7 +20,10 @@
 #define  REG_CPU_CTRL_RUN	BIT(4)
 
 /* Apple NVMe registers */
-#define ANS_MAX_PEND_CMDS_CTRL	0x01210
+#define ANS_T8132_IOQ_CMDS	0x01200
+#define ANS_T8132_IOQ_CQES	0x01208
+#define ANS_T8132_IOQ_SIZE	0x01210
+#define ANS_T8103_MAX_PEND_CMDS_CTRL	0x01210
 #define  ANS_MAX_QUEUE_DEPTH	64
 #define ANS_BOOT_STATUS		0x01300
 #define  ANS_BOOT_STATUS_OK	0xde71ce55
@@ -61,8 +64,13 @@ struct ans_nvmmu_tcb {
 #define ANS_NVMMU_TCB_WRITE	BIT(0)
 #define ANS_NVMMU_TCB_READ	BIT(1)
 
+struct apple_nvme_hw {
+	bool needs_ioq_register;
+};
+
 struct apple_nvme_priv {
 	struct nvme_dev ndev;
+	const struct apple_nvme_hw *hw;
 	void *base;		/* NVMe registers */
 	void *asc;		/* ASC registers */
 	struct reset_ctl_bulk resets; /* ASC reset */
@@ -109,6 +117,22 @@ static int apple_nvme_setup_queue(struct nvme_queue *nvmeq)
 	}
 
 	return 0;
+}
+
+static void apple_nvme_register_queue(struct nvme_queue *nvmeq)
+{
+	struct apple_nvme_priv *priv =
+		container_of(nvmeq->dev, struct apple_nvme_priv, ndev);
+	u32 qsize;
+
+	if (!priv->hw->needs_ioq_register)
+		return;
+
+	/* T8132 ignores qsize in the Create CQ/SQ commands. */
+	qsize = nvmeq->q_depth - 1;
+	nvme_writeq((ulong)nvmeq->cqes, priv->base + ANS_T8132_IOQ_CQES);
+	nvme_writeq((ulong)nvmeq->sq_cmds, priv->base + ANS_T8132_IOQ_CMDS);
+	writel(qsize | (qsize << 16), priv->base + ANS_T8132_IOQ_SIZE);
 }
 
 static void apple_nvme_submit_cmd(struct nvme_queue *nvmeq,
@@ -196,6 +220,8 @@ static int apple_nvme_probe(struct udevice *dev)
 	u32 ctrl, stat, phandle;
 	int ret;
 
+	priv->hw = (void *)dev_get_driver_data(dev);
+
 	priv->base = dev_read_addr_ptr(dev);
 	if (!priv->base)
 		return -EINVAL;
@@ -244,8 +270,10 @@ static int apple_nvme_probe(struct udevice *dev)
 	}
 
 	writel(ANS_LINEAR_SQ_CTRL_EN, priv->base + ANS_LINEAR_SQ_CTRL);
-	writel(((ANS_MAX_QUEUE_DEPTH << 16) | ANS_MAX_QUEUE_DEPTH),
-	       priv->base + ANS_MAX_PEND_CMDS_CTRL);
+	/* T8132 repurposes this register as IOQ_SIZE. */
+	if (!priv->hw->needs_ioq_register)
+		writel(((ANS_MAX_QUEUE_DEPTH << 16) | ANS_MAX_QUEUE_DEPTH),
+		       priv->base + ANS_T8103_MAX_PEND_CMDS_CTRL);
 
 	writel(readl(priv->base + ANS_UNKNOWN_CTRL) & ~ANS_PRP_NULL_CHECK,
 	       priv->base + ANS_UNKNOWN_CTRL);
@@ -286,13 +314,26 @@ static int apple_nvme_remove(struct udevice *dev)
 
 static const struct nvme_ops apple_nvme_ops = {
 	.setup_queue = apple_nvme_setup_queue,
+	.register_queue = apple_nvme_register_queue,
 	.submit_cmd = apple_nvme_submit_cmd,
 	.complete_cmd = apple_nvme_complete_cmd,
 };
 
+static const struct apple_nvme_hw apple_nvme_t8103_hw = {
+	.needs_ioq_register = false,
+};
+
+static const struct apple_nvme_hw apple_nvme_t8132_hw = {
+	.needs_ioq_register = true,
+};
+
 static const struct udevice_id apple_nvme_ids[] = {
-	{ .compatible = "apple,t8103-nvme-ans2" },
-	{ .compatible = "apple,nvme-ans2" },
+	{ .compatible = "apple,t8103-nvme-ans2",
+	  .data = (ulong)&apple_nvme_t8103_hw },
+	{ .compatible = "apple,t8132-nvme-ans2",
+	  .data = (ulong)&apple_nvme_t8132_hw },
+	{ .compatible = "apple,nvme-ans2",
+	  .data = (ulong)&apple_nvme_t8103_hw },
 	{ /* sentinel */ }
 };
 
