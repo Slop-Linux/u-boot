@@ -307,6 +307,8 @@ static int apple_nvme_remove(struct udevice *dev)
 	priv->sart = NULL;
 
 	reset_assert_bulk(&priv->resets);
+	/* Give the ANS reset time to reach the device before releasing it. */
+	udelay(10);
 	reset_deassert_bulk(&priv->resets);
 
 	return 0;
