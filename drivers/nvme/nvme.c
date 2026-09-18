@@ -44,6 +44,13 @@ static inline void nvme_invalidate_cache_aligned(uintptr_t addr, int length)
 	invalidate_dcache_range(start_addr, end_addr);
 }
 
+static int nvme_poll(struct nvme_dev *dev)
+{
+	const struct nvme_ops *ops = dev->udev->driver->ops;
+
+	return ops && ops->poll ? ops->poll(dev) : 0;
+}
+
 static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
 {
 	int timeout;
@@ -54,6 +61,10 @@ static int nvme_wait_csts(struct nvme_dev *dev, u32 mask, u32 val)
 
 	start = get_timer(0);
 	while (get_timer(start) < timeout) {
+		int ret = nvme_poll(dev);
+
+		if (ret)
+			return ret;
 		if ((readl(&dev->bar->csts) & mask) == val)
 			return 0;
 	}
@@ -195,6 +206,10 @@ static int nvme_submit_sync_cmd(struct nvme_queue *nvmeq,
 	start_time = timer_get_us();
 
 	for (;;) {
+		int ret = nvme_poll(nvmeq->dev);
+
+		if (ret)
+			return ret;
 		status = nvme_read_completion_status(nvmeq, head);
 		if ((status & 0x01) == phase)
 			break;

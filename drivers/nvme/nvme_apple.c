@@ -312,7 +312,17 @@ static int apple_nvme_remove(struct udevice *dev)
 	return 0;
 }
 
+static int apple_nvme_poll(struct nvme_dev *dev)
+{
+	struct apple_nvme_priv *priv =
+		container_of(dev, struct apple_nvme_priv, ndev);
+	int ret = apple_rtkit_poll(priv->rtk, 0);
+
+	return ret == -ETIMEDOUT ? 0 : ret;
+}
+
 static const struct nvme_ops apple_nvme_ops = {
+	.poll = apple_nvme_poll,
 	.setup_queue = apple_nvme_setup_queue,
 	.register_queue = apple_nvme_register_queue,
 	.submit_cmd = apple_nvme_submit_cmd,

@@ -666,6 +666,12 @@ struct nvme_ns {
 
 struct nvme_ops {
 	/**
+	 * poll - Service controller firmware while waiting for hardware.
+	 * @dev: NVM Express controller
+	 * Return: 0 if OK, -ve on error
+	 */
+	int (*poll)(struct nvme_dev *dev);
+	/**
 	 * setup_queue - Controller-specific NVM Express queue setup.
 	 *
 	 * @nvmeq: NVM Express queue
